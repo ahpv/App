@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HỆ THỐNG HỖ TRỢ CHUẨN ĐOÁN THỂ TRẠNG CƠ THỂ VÀ ĐÁNH GIÁ MỘT SỐ NGUY CƠ SỨC KHỎE</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.8/axios.min.js"></script>
+</head>
+
+<body class="bg-gray-100 font-sans">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // Initial criteria and alternatives
+        const initialCriteria = ['BF%', 'WHR', 'BMI', 'WHtR', 'LBM'];
+        const initialAlternatives = ['Tăng huyết áp', 'Bệnh tim', 'Suy dinh dưỡng', 'Tiểu đường'];
+
+        // Initial pairwise comparison matrix for criteria
+        const initialCriteriaMatrix = [
+            [1, 3, 5, 4, 7],
+            [1 / 3, 1, 3, 2, 5],
+            [1 / 5, 1 / 3, 1, 1 / 2, 3],
+            [1 / 4, 1 / 2, 2, 1, 4],
+            [1 / 7, 1 / 5, 1 / 3, 1 / 4, 1],
+        ];
+
+        // Initial pairwise comparison matrices for alternatives under each criterion
+        const initialAlternativeMatrices = {
+            'BF%': [
+                [1, 1 / 3, 5, 1 / 5],
+                [3, 1, 7, 1 / 3],
+                [1 / 5, 1 / 7, 1, 1 / 7],
+                [5, 3, 7, 1],
+            ],
+            'WHR': [
+                [1, 1 / 5, 5, 1 / 3],
+                [5, 1, 7, 3],
+                [1 / 5, 1 / 7, 1, 1 / 7],
+                [3, 1 / 3, 7, 1],
+            ],
+            'BMI': [
+                [1, 3, 5, 3],
+                [1 / 3, 1, 5, 1],
+                [1 / 5, 1 / 5, 1, 1 / 5],
+                [1 / 3, 1, 5, 1],
+            ],
+            'WHtR': [
+                [1, 1, 5, 1],
+                [1, 1, 5, 1],
+                [1 / 5, 1 / 5, 1, 1 / 5],
+                [1, 1, 5, 1],
+            ],
+            'LBM': [
+                [1, 1 / 3, 1 / 5, 1 / 3],
+                [3, 1, 1, 1],
+                [5, 1, 1, 1],
+                [3, 1, 1, 1],
+            ],
+        };
+
+        // Random Index (RI) for consistency calculation
+        const RI = { 2: 0, 3: 0.58, 4: 0.9, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45 };
+
+        // Normalize a matrix and compute weights
+        const normalizeMatrix = (matrix) => {
+            const n = matrix.length;
+            const colSums = matrix[0].map((_, col) =>
+                matrix.reduce((sum, row) => sum + row[col], 0)
+            );
+            const normalized = matrix.map(row =>
+                row.map((val, col) => val / colSums[col])
+            );
+            const weights = normalized.map(row =>
+                row.reduce((sum, val) => sum + val, 0) / n
+            );
+            return { normalized, weights };
+        };
+
+        // Calculate Consistency Ratio (CR)
+        const calculateCR = (matrix, weights) => {
+            const n = matrix.length;
+            const weightedSum = matrix.map((row, i) =>
+                row.reduce((sum, val, j) => sum + val * weights[j], 0)
+            );
+            const consistencyVector = weightedSum.map((val, i) => val / weights[i]);
+            const lambdaMax = consistencyVector.reduce((sum, val) => sum + val, 0) / n;
+            const CI = (lambdaMax - n) / (n - 1);
+            const CR = n <= 2 ? 0 : CI / RI[n]; // CR is 0 for 2x2 matrices
+            return { lambdaMax, CI, CR };
+        };
+
+        // Compute global scores
+        const computeGlobalScores = (criteriaList, alternativesList, criteriaWeights, alternativeWeights) => {
+            const scores = alternativesList.map((_, i) => {
+                let score = 0;
+                criteriaList.forEach(criterion => {
+                    score += alternativeWeights[criterion][i] * criteriaWeights[criterion];
+                });
+                return score;
+            });
+            const result = alternativesList
+                .map((alt, i) => ({ name: alt, score: scores[i] }))
+                .sort((a, b) => b.score - a.score)
+                .map((item, i) => ({ ...item, rank: i + 1 }));
+
+            return result;
+        };
+
+        const formatValue = (value) => {
+            if (value === 1) return "1";
+            const fractionPairs = [
+                { fraction: "1/9", value: 1 / 9 },
+                { fraction: "1/8", value: 1 / 8 },
+                { fraction: "1/7", value: 1 / 7 },
+                { fraction: "1/6", value: 1 / 6 },
+                { fraction: "1/5", value: 1 / 5 },
+                { fraction: "1/4", value: 1 / 4 },
+                { fraction: "1/3", value: 1 / 3 },
+                { fraction: "1/2", value: 1 / 2 },
+                { fraction: "2", value: 2 },
+                { fraction: "3", value: 3 },
+                { fraction: "4", value: 4 },
+                { fraction: "5", value: 5 },
+                { fraction: "6", value: 6 },
+                { fraction: "7", value: 7 },
+                { fraction: "8", value: 8 },
+                { fraction: "9", value: 9 },
+            ];
+            for (const pair of fractionPairs) {
+                if (Math.abs(value - pair.value) < 0.01) return pair.fraction;
+            }
+            return value.toFixed(4);
+        };
+
+        const parseInput = (input) => {
+            if (!input) return null;
+            input = input.trim();
+            if (input.includes('/')) {
+                const [numerator, denominator] = input.split('/').map(Number);
+                if (denominator === 0 || isNaN(numerator) || isNaN(denominator)) return null;
+                return numerator / denominator;
+            }
+            const value = parseFloat(input);
+            return isNaN(value) ? null : value;
+        };
+
+        const App = () => {
+            const [userInput, setUserInput] = useState({
+                name: '',
+                sex: '1',
+                age: '',
+                weight: '',
+                height: '',
+                waist: '',
+                buttocks: '',
+                message: '',
+            });
+            const [criteria, setCriteria] = useState(initialCriteria);
+            const [alternatives, setAlternatives] = useState(initialAlternatives);
+            const [criteriaMatrix, setCriteriaMatrix] = useState(initialCriteriaMatrix);
+            const [alternativeMatrices, setAlternativeMatrices] = useState(initialAlternativeMatrices);
+            const [newCriterion, setNewCriterion] = useState('');
+            const [newAlternative, setNewAlternative] = useState('');
+            const [bodyIndices, setBodyIndices] = useState(null);
+            const [results, setResults] = useState(null);
+            const [isLoadingBodyIndices, setIsLoadingBodyIndices] = useState(false);
+            const [isLoadingAHP, setIsLoadingAHP] = useState(false);
+            const [saveStatus, setSaveStatus] = useState('');
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setUserInput({ ...userInput, [name]: value });
+            };
+
+            const addCriterion = () => {
+                if (!newCriterion.trim()) return;
+                const newCrit = newCriterion.trim();
+                if (criteria.includes(newCrit)) {
+                    alert('Tiêu chí đã tồn tại!');
+                    return;
+                }
+
+                setCriteria([...criteria, newCrit]);
+
+                const newRow = Array(criteria.length + 1).fill(1);
+                const newMatrix = criteriaMatrix.map(row => [...row, 1]);
+                newMatrix.push(newRow);
+                setCriteriaMatrix(newMatrix);
+
+                const newAltMatrix = Array(alternatives.length).fill().map(() =>
+                    Array(alternatives.length).fill(1)
+                );
+                setAlternativeMatrices(prev => ({
+                    ...prev,
+                    [newCrit]: newAltMatrix,
+                }));
+
+                setNewCriterion('');
+            };
+
+            const removeCriterion = (index) => {
+                if (criteria.length <= 2) {
+                    alert('Phải có tối thiểu 2 tiêu chí!');
+                    return;
+                }
+
+                const critToRemove = criteria[index];
+                const newCriteria = criteria.filter((_, i) => i !== index);
+                setCriteria(newCriteria);
+
+                const newMatrix = criteriaMatrix
+                    .filter((_, i) => i !== index)
+                    .map(row => row.filter((_, j) => j !== index));
+                setCriteriaMatrix(newMatrix);
+
+                const newAltMatrices = { ...alternativeMatrices };
+                delete newAltMatrices[critToRemove];
+                setAlternativeMatrices(newAltMatrices);
+            };
+
+            const addAlternative = () => {
+                if (!newAlternative.trim()) return;
+                const newAlt = newAlternative.trim();
+                if (alternatives.includes(newAlt)) {
+                    alert('Phương án đã tồn tại!');
+                    return;
+                }
+
+                setAlternatives([...alternatives, newAlt]);
+
+                const newAltMatrices = { ...alternativeMatrices };
+                Object.keys(newAltMatrices).forEach(criterion => {
+                    const matrix = newAltMatrices[criterion];
+                    const newRow = Array(matrix.length + 1).fill(1);
+                    const newMatrix = matrix.map(row => [...row, 1]);
+                    newMatrix.push(newRow);
+                    newAltMatrices[criterion] = newMatrix;
+                });
+                setAlternativeMatrices(newAltMatrices);
+
+                setNewAlternative('');
+            };
+
+            const removeAlternative = (index) => {
+                const newAlternatives = alternatives.filter((_, i) => i !== index);
+                setAlternatives(newAlternatives);
+
+                const newAltMatrices = { ...alternativeMatrices };
+                Object.keys(newAltMatrices).forEach(criterion => {
+                    const matrix = newAltMatrices[criterion];
+                    const newMatrix = matrix
+                        .filter((_, i) => i !== index)
+                        .map(row => row.filter((_, j) => j !== index));
+                    newAltMatrices[criterion] = newMatrix;
+                });
+                setAlternativeMatrices(newAltMatrices);
+            };
+
+            const handleCriteriaChange = (i, j, value) => {
+                const val = parseInput(value);
+                if (val === null || val <= 0) return;
+                setCriteriaMatrix(prevMatrix => {
+                    const newMatrix = prevMatrix.map(row => [...row]);
+                    newMatrix[i][j] = val;
+                    newMatrix[j][i] = 1 / val;
+                    return newMatrix;
+                });
+            };
+
+            const handleAlternativeChange = (criterion, i, j, value) => {
+                const val = parseInput(value);
+                if (val === null || val <= 0) return;
+                setAlternativeMatrices(prevMatrices => {
+                    const newMatrices = { ...prevMatrices };
+                    const newMatrix = newMatrices[criterion].map(row => [...row]);
+                    newMatrix[i][j] = val;
+                    newMatrix[j][i] = 1 / val;
+                    newMatrices[criterion] = newMatrix;
+                    return newMatrices;
+                });
+            };
+
+            const calculateBodyIndices = async () => {
+                setIsLoadingBodyIndices(true);
+                setSaveStatus('');
+                try {
+                    const bodyData = {
+                        sex: parseInt(userInput.sex) || 1,
+                        age: parseFloat(userInput.age) || 0,
+                        weight: parseFloat(userInput.weight) || 0,
+                        height: parseFloat(userInput.height) || 0,
+                        waist: parseFloat(userInput.waist) || 0,
+                        buttocks: parseFloat(userInput.buttocks) || 0,
+                    };
+
+                    const response = await axios.post('http://localhost:5000/save-results', {
+                        bodyMetrics: bodyData,
+                        name: userInput.name,
+                        message: userInput.message,
+                        timestamp: new Date().toISOString(),
+                    });
+
+                    const bodyIndices = response.data.bodyIndices;
+                    if (!bodyIndices) throw new Error('Invalid body metrics');
+
+                    setBodyIndices(bodyIndices);
+                } catch (error) {
+                    console.error(error);
+                    alert('Lỗi trong quá trình tính chỉ số cơ thể. Vui lòng kiểm tra dữ liệu nhập.');
+                }
+                setIsLoadingBodyIndices(false);
+            };
+
+            const calculateAHP = async () => {
+                setIsLoadingAHP(true);
+                setSaveStatus('');
+                try {
+                    const { weights: criteriaWeights } = normalizeMatrix(criteriaMatrix);
+                    const criteriaCR = calculateCR(criteriaMatrix, criteriaWeights);
+
+                    const alternativeWeights = {};
+                    const alternativeCRs = {};
+                    criteria.forEach(criterion => {
+                        const { weights } = normalizeMatrix(alternativeMatrices[criterion]);
+                        alternativeWeights[criterion] = weights;
+                        alternativeCRs[criterion] = calculateCR(alternativeMatrices[criterion], weights);
+                    });
+
+                    const globalScores = computeGlobalScores(
+                        criteria,
+                        alternatives,
+                        criteria.reduce((obj, crit, i) => ({ ...obj, [crit]: criteriaWeights[i] }), {}),
+                        alternativeWeights
+                    );
+
+                    const ahpResults = {
+                        criteriaMatrix,
+                        alternativeMatrices,
+                        criteriaWeights,
+                        criteriaCR,
+                        alternativeWeights,
+                        alternativeCRs,
+                        globalScores,
+                    };
+
+                    const bodyData = {
+                        sex: parseInt(userInput.sex) || 1,
+                        age: parseFloat(userInput.age) || 0,
+                        weight: parseFloat(userInput.weight) || 0,
+                        height: parseFloat(userInput.height) || 0,
+                        waist: parseFloat(userInput.waist) || 0,
+                        buttocks: parseFloat(userInput.buttocks) || 0,
+                    };
+
+                    const dataToSave = {
+                        ...ahpResults,
+                        bodyMetrics: bodyData,
+                        bodyIndices,
+                        name: userInput.name,
+                        message: userInput.message,
+                        timestamp: new Date().toISOString(),
+                    };
+
+                    const response = await axios.post('http://localhost:5000/save-results', dataToSave);
+                    setResults(ahpResults);
+                    setSaveStatus('Kết quả đã được lưu thành công!');
+                } catch (error) {
+                    console.error(error);
+                    alert('Lỗi trong quá trình tính AHP. Vui lòng kiểm tra dữ liệu nhập.');
+                }
+                setIsLoadingAHP(false);
+            };
+
+            return (
+                <div className="container mx-auto p-4">
+                    <h1 className="text-3xl font-bold text-center mb-6">HỆ THỐNG HỖ TRỢ CHUẨN ĐOÁN THỂ TRẠNG CƠ THỂ VÀ ĐÁNH GIÁ MỘT SỐ NGUY CƠ SỨC KHỎE</h1>
+
+                    {/* User Input */}
+                    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 className="text-xl font-semibold mb-4">Nhập Thông tin Người dùng</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label className="font-medium">Tên:</label>
+                                <input
+                                    type="text"
+                                    name="name"
+                                    value={userInput.name}
+                                    onChange={handleInputChange}
+                                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Nhập tên của bạn"
+                                />
+                            </div>
+                            <div>
+                                <label className="font-medium">Giới tính (1=Nam, 0=Nữ):</label>
+                                <select
+                                    name="sex"
+                                    value={userInput.sex}
+                                    onChange={handleInputChange}
+                                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="1">Nam (1)</option>
+                                    <option value="0">Nữ (0)</option>
+                                </select>
+                            </div>
+                            {['age', 'weight', 'height', 'waist', 'buttocks'].map(field => (
+                                <div key={field}>
+                                    <label className="font-medium">
+                                        {field === 'age' ? 'Tuổi' :
+                                            field === 'weight' ? 'Cân nặng (kg)' :
+                                                field === 'height' ? 'Chiều cao (cm)' :
+                                                    field === 'waist' ? 'Vòng eo (cm)' : 'Vòng mông (cm)'}:
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name={field}
+                                        value={userInput[field]}
+                                        onChange={handleInputChange}
+                                        className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        step="0.1"
+                                        min="0"
+                                        placeholder={`Nhập ${field === 'age' ? 'tuổi' : field}`}
+                                    />
+                                </div>
+                            ))}
+                            <div className="md:col-span-3">
+                                <label className="font-medium">Lời nhắn nhủ:</label>
+                                <textarea
+                                    name="message"
+                                    value={userInput.message}
+                                    onChange={handleInputChange}
+                                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Nhập lời nhắn nhủ của bạn"
+                                    rows="4"
+                                />
+                            </div>
+                        </div>
+                        <button
+                            onClick={calculateBodyIndices}
+                            className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 mt-4"
+                        >
+                            Tính Chỉ số Cơ thể
+                        </button>
+                    </div>
+
+                    {/* Body Indices Results */}
+                    {bodyIndices && !isLoadingBodyIndices && (
+                        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                            <h2 className="text-xl font-semibold mb-4">Chỉ số Cơ thể Đã Tính</h2>
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border p-2">Chỉ số</th>
+                                        <th className="border p-2">Giá trị</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {Object.entries(bodyIndices).map(([key, value]) => (
+                                        <tr key={key}>
+                                            <td className="border p-2">{key.toUpperCase()}</td>
+                                            <td className="border p-2">{value.toFixed(4)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {/* Manage Criteria */}
+                    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 className="text-xl font-semibold mb-4">Quản lý Tiêu chí</h2>
+                        <div className="flex items-center mb-4">
+                            <input
+                                type="text"
+                                value={newCriterion}
+                                onChange={e => setNewCriterion(e.target.value)}
+                                className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 mr-2"
+                                placeholder="Nhập tiêu chí mới (ví dụ: TDEE)"
+                            />
+                            <button
+                                onClick={addCriterion}
+                                className="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600"
+                            >
+                                Thêm Tiêu chí
+                            </button>
+                        </div>
+                        <ul className="list-disc pl-5">
+                            {criteria.map((crit, index) => (
+                                <li key={crit} className="flex items-center justify-between py-1">
+                                    <span>{crit}</span>
+                                    {index >= 2 && (
+                                        <button
+                                            onClick={() => removeCriterion(index)}
+                                            className="bg-red-500 text-white py-1 px-2 rounded hover:bg-red-600"
+                                        >
+                                            Xóa
+                                        </button>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    {/* Manage Alternatives */}
+                    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 className="text-xl font-semibold mb-4">Quản lý Phương án</h2>
+                        <div className="flex items-center mb-4">
+                            <input
+                                type="text"
+                                value={newAlternative}
+                                onChange={e => setNewAlternative(e.target.value)}
+                                className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 mr-2"
+                                placeholder="Nhập phương án mới (ví dụ: Béo phì)"
+                            />
+                            <button
+                                onClick={addAlternative}
+                                className="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600"
+                            >
+                                Thêm Phương án
+                            </button>
+                        </div>
+                        <ul className="list-disc pl-5">
+                            {alternatives.map((alt, index) => (
+                                <li key={alt} className="flex items-center justify-between py-1">
+                                    <span>{alt}</span>
+                                    <button
+                                        onClick={() => removeAlternative(index)}
+                                        className="bg-red-500 text-white py-1 px-2 rounded hover:bg-red-600"
+                                    >
+                                        Xóa
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    {/* Criteria Matrix Input */}
+                    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                        <h2 className="text-xl font-semibold mb-4">Ma trận So sánh Cặp Tiêu chí</h2>
+                        <p className="text-sm text-gray-600 mb-2">Lưu ý: Nhập giá trị dưới dạng phân số (ví dụ: 1/3) hoặc số thập phân (ví dụ: 0.333). Giá trị đối xứng sẽ tự động cập nhật.</p>
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="bg-gray-200">
+                                    <th className="border p-2"></th>
+                                    {criteria.map(crit => (
+                                        <th key={crit} className="border p-2">{crit}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {criteriaMatrix.map((row, i) => (
+                                    <tr key={i}>
+                                        <td className="border p-2 font-medium">{criteria[i]}</td>
+                                        {row.map((val, j) => (
+                                            <td key={j} className="border p-2">
+                                                <input
+                                                    type="text"
+                                                    value={formatValue(val)}
+                                                    onChange={e => handleCriteriaChange(i, j, e.target.value)}
+                                                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
+                                                    placeholder="Nhập 1/3 hoặc 0.333"
+                                                    disabled={i === j}
+                                                    {...i === j ? { style: { backgroundColor: '#f0f0f0' } } : {}}
+                                                />
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Alternative Matrices Input */}
+                    {criteria.map(criterion => (
+                        <div key={criterion} className="bg-white p-6 rounded-lg shadow-md mb-8">
+                            <h2 className="text-xl font-semibold mb-4">Ma trận So sánh Cặp Phương án: {criterion}</h2>
+                            <p className="text-sm text-gray-600 mb-2">Lưu ý: Nhập giá trị dưới dạng phân số (ví dụ: 1/3) hoặc số thập phân (ví dụ: 0.333). Giá trị đối xứng sẽ tự động cập nhật.</p>
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border p-2"></th>
+                                        {alternatives.map(alt => (
+                                            <th key={alt} className="border p-2">{alt}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {alternativeMatrices[criterion].map((row, i) => (
+                                        <tr key={i}>
+                                            <td className="border p-2 font-medium">{alternatives[i]}</td>
+                                            {row.map((val, j) => (
+                                                <td key={j} className="border p-2">
+                                                    <input
+                                                        type="text"
+                                                        value={formatValue(val)}
+                                                        onChange={e => handleAlternativeChange(criterion, i, j, e.target.value)}
+                                                        className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
+                                                        placeholder="Nhập 1/3 hoặc 0.333"
+                                                        disabled={i === j}
+                                                        {...i === j ? { style: { backgroundColor: '#f0f0f0' } } : {}}
+                                                    />
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ))}
+
+                    <button
+                        onClick={calculateAHP}
+                        className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 mb-8"
+                    >
+                        Tính AHP
+                    </button>
+
+                    {isLoadingBodyIndices && <p className="text-center">Đang tính toán chỉ số cơ thể...</p>}
+                    {isLoadingAHP && <p className="text-center">Đang tính toán AHP...</p>}
+                    {saveStatus && <p className="text-center text-green-600">{saveStatus}</p>}
+
+                    {/* AHP Results */}
+                    {results && !isLoadingAHP && (
+                        <div className="bg-white p-6 rounded-lg shadow-md">
+                            <h2 className="text-xl font-semibold mb-4">Kết quả AHP</h2>
+
+                            {/* Criteria Weights */}
+                            <h3 className="text-lg font-medium mb-2">Trọng số Tiêu chí</h3>
+                            <table className="w-full border-collapse mb-4">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        {criteria.map(crit => (
+                                            <th key={crit} className="border p-2">{crit}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        {results.criteriaWeights.map((weight, i) => (
+                                            <td key={i} className="border p-2 text-center">{weight.toFixed(4)}</td>
+                                        ))}
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <p>Tỷ lệ Nhất quán Tiêu chí (CR): {results.criteriaCR.CR.toFixed(4)} {results.criteriaCR.CR < 0.1 ? '(Nhất quán)' : '(Không nhất quán)'}</p>
+
+                            {/* Alternative Weights */}
+                            <h3 className="text-lg font-medium mb-2 mt-6">Trọng số Phương án theo Tiêu chí</h3>
+                            {criteria.map(criterion => (
+                                <div key={criterion} className="mb-4">
+                                    <h4 className="font-medium">{criterion}</h4>
+                                    <table className="w-full border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-200">
+                                                {alternatives.map(alt => (
+                                                    <th key={alt} className="border p-2">{alt}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                {results.alternativeWeights[criterion].map((weight, i) => (
+                                                    <td key={i} className="border p-2 text-center">{weight.toFixed(4)}</td>
+                                                ))}
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p>CR: {results.alternativeCRs[criterion].CR.toFixed(4)} {results.alternativeCRs[criterion].CR < 0.1 ? '(Nhất quán)' : '(Không nhất quán)'}</p>
+                                </div>
+                            ))}
+
+                            {/* Global Scores */}
+                            <h3 className="text-lg font-medium mb-2 mt-6">Điểm Tổng thể và Xếp hạng</h3>
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border p-2">Nguy cơ Sức khỏe</th>
+                                        <th className="border p-2">Điểm</th>
+                                        <th className="border p-2">Xếp hạng</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {results.globalScores.map(result => (
+                                        <tr key={result.name}>
+                                            <td className="border p-2">{result.name}</td>
+                                            <td className="border p-2">{result.score.toFixed(4)}</td>
+                                            <td className="border p-2">{result.rank}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
