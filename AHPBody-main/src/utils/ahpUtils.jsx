@@ -34,7 +34,7 @@ export const calculateCR = (matrix, weights) => {
   const lambdaMax = consistencyVector.reduce((sum, val) => sum + val, 0) / n;
   const CI = (lambdaMax - n) / (n - 1);
   const CR = n <= 2 ? 0 : CI / RI[n];
-  return { lambdaMax, CI, CR };
+  return { lambdaMax, CI, CR }; // Đảm bảo trả về cả CI để sử dụng trong CriteriaMatrix và AlternativeMatrix
 };
 
 export const computeGlobalScores = (

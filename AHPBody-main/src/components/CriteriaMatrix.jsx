@@ -1,7 +1,15 @@
-import React from "react";
+import React, { useState } from "react";
 import { formatValue, parseInput } from "../utils/inputUtils";
+import { normalizeMatrix, calculateCR } from "../utils/ahpUtils";
 
 const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
+  const [ciValue, setCiValue] = useState(null);
+  const [lambdaMaxValue, setLambdaMaxValue] = useState(null);
+  const [crValue, setCrValue] = useState(null);
+  const [normalizedMatrix, setNormalizedMatrix] = useState(null);
+  const [weights, setWeights] = useState(null);
+  const [consistencyVector, setConsistencyVector] = useState(null);
+
   const handleCriteriaChange = (i, j, value) => {
     const val = parseInput(value);
     if (val === null || val <= 0) return;
@@ -11,6 +19,24 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
       newMatrix[j][i] = 1 / val;
       return newMatrix;
     });
+  };
+
+  const calculateCI = () => {
+    const { normalized, weights } = normalizeMatrix(criteriaMatrix);
+    const { lambdaMax, CI, CR } = calculateCR(criteriaMatrix, weights);
+
+    // Tính vector nhất quán
+    const weightedSum = criteriaMatrix.map((row, i) =>
+      row.reduce((sum, val, j) => sum + val * weights[j], 0)
+    );
+    const consistencyVec = weightedSum.map((val, i) => val / weights[i]);
+
+    setNormalizedMatrix(normalized);
+    setWeights(weights);
+    setConsistencyVector(consistencyVec);
+    setCiValue(CI.toFixed(4));
+    setLambdaMaxValue(lambdaMax.toFixed(4));
+    setCrValue(CR.toFixed(4));
   };
 
   return (
@@ -25,9 +51,9 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
       <table className="w-full border-collapse">
         <thead>
           <tr className="bg-gray-200">
-            <th className="border p-2"></th>
+            <th className="border border-gray-400 p-2"></th>
             {criteria.map((crit) => (
-              <th key={crit} className="border p-2">
+              <th key={crit} className="border border-gray-400 p-2">
                 {crit}
               </th>
             ))}
@@ -36,9 +62,9 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
         <tbody>
           {criteriaMatrix.map((row, i) => (
             <tr key={i}>
-              <td className="border p-2 font-medium">{criteria[i]}</td>
+              <td className="border border-gray-400 p-2 font-medium">{criteria[i]}</td>
               {row.map((val, j) => (
-                <td key={j} className="border p-2">
+                <td key={j} className="border border-gray-400 p-2">
                   <input
                     type="text"
                     value={formatValue(val)}
@@ -54,6 +80,72 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
           ))}
         </tbody>
       </table>
+      <div className="mt-4">
+        <button
+          onClick={calculateCI}
+          className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
+        >
+          Tính CI
+        </button>
+        {normalizedMatrix && (
+          <div className="mt-4">
+            <table className="w-full border-collapse bg-white">
+              <thead>
+                <tr className="bg-gray-200">
+                  <th className="border border-gray-400 p-2">Tiêu chí</th>
+                  {criteria.map((crit) => (
+                    <th key={crit} className="border border-gray-400 p-2">
+                      {crit}
+                    </th>
+                  ))}
+                  <th className="border border-gray-400 p-2">Sum Weight</th>
+                  <th className="border border-gray-400 p-2">Trọng số PA</th>
+                  <th className="border border-gray-400 p-2">Consistency vector</th>
+                </tr>
+              </thead>
+              <tbody>
+                {normalizedMatrix.map((row, i) => (
+                  <tr key={i}>
+                    <td className="border border-gray-400 p-2">{criteria[i]}</td>
+                    {row.map((val, j) => (
+                      <td key={j} className="border border-gray-400 p-2">
+                        {val.toFixed(4)}
+                      </td>
+                    ))}
+                    <td className="border border-gray-400 p-2">
+                      {(criteriaMatrix[i].reduce((sum, val) => sum + val, 0) / criteria.length).toFixed(4)}
+                    </td>
+                    <td className="border border-gray-400 p-2">
+                      {(weights[i] || 0).toFixed(4)}
+                    </td>
+                    <td className="border border-gray-400 p-2">
+                      {(consistencyVector[i] || 0).toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={criteria.length + 1} className="border border-gray-400 p-2"></td>
+                  <td className="border border-gray-400 p-2 font-bold">λ<sub>max</sub></td>
+                  <td className="border border-gray-400 p-2">{lambdaMaxValue}</td>
+                  <td colSpan={2}></td>
+                </tr>
+                <tr>
+                  <td colSpan={criteria.length + 1} className="border border-gray-400 p-2"></td>
+                  <td className="border border-gray-400 p-2 font-bold">CI (Consistency Index)</td>
+                  <td className="border border-gray-400 p-2">{ciValue}</td>
+                  <td colSpan={2}></td>
+                </tr>
+                <tr>
+                  <td colSpan={criteria.length + 1} className="border border-gray-400 p-2"></td>
+                  <td className="border border-gray-400 p-2 font-bold">CR</td>
+                  <td className="border border-gray-400 p-2">{crValue}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

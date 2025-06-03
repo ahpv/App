@@ -11,6 +11,7 @@ import { calculateBodyIndices, calculateAHP, normalizeMatrix, calculateCR } from
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
+import Tree from "react-d3-tree";
 
 const initialCriteria = ["BF%", "WHR", "BMI", "WHtR", "LBM"];
 const initialAlternatives = [
@@ -84,6 +85,7 @@ const App = () => {
   const [isLoadingAHP, setIsLoadingAHP] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [isConsistent, setIsConsistent] = useState(false);
+  const [showTree, setShowTree] = useState(false);
 
   const checkConsistency = () => {
     const { weights: criteriaWeights } = normalizeMatrix(criteriaMatrix);
@@ -180,6 +182,28 @@ const App = () => {
     }
   };
 
+  const ahpTreeData = results && !isLoadingAHP && {
+    name: "Chuẩn đoán thể trạng cơ thể",
+    attributes: { weight: (1).toFixed(3) },
+    children: criteria.map((criterion, index) => {
+      const criteriaWeight = results.criteriaWeights[index];
+      const altWeights = results.alternativeWeights[criterion] || [];
+
+      return {
+        name: criterion,
+        attributes: { weight: (criteriaWeight * 100).toFixed(3) + "%" },
+        children: alternatives.map((alt, altIndex) => ({
+          name: alt,
+          attributes: {
+            weight: (altWeights[altIndex] * criteriaWeight).toFixed(3),
+            globalScore: results.globalScores[altIndex]?.score.toFixed(3),
+            rank: results.globalScores[altIndex]?.rank,
+          },
+        })),
+      };
+    }),
+  };
+
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold text-center mb-4">
@@ -274,6 +298,12 @@ const App = () => {
             >
               Xuất PDF
             </button>
+            <button
+              onClick={() => setShowTree(true)}
+              className="bg-purple-500 text-white py-2 px-4 rounded hover:bg-purple-600"
+            >
+              Tạo Sơ đồ Phân cấp AHP
+            </button>
           </div>
           <AHPResults
             results={results}
@@ -283,6 +313,69 @@ const App = () => {
           />
         </>
       ) : null}
+      {showTree && results && !isLoadingAHP && (
+        <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
+          <h2 className="text-xl font-semibold mb-4">Sơ đồ Quan hệ AHP</h2>
+          <div className="w-[90vw] h-[80vh] border rounded overflow-hidden" style={{ position: "relative" }}>
+            <Tree
+              data={ahpTreeData}
+              orientation="vertical"
+              translate={{ x: 400, y: 40 }}
+              nodeSize={{ x: 160, y: 100 }}
+              separation={{ siblings: 1.2, nonSiblings: 1.5 }}
+              pathFunc="straight"
+              collapsible={false}
+              renderCustomNodeElement={(rd3tProps) => (
+                <g>
+                  <rect
+                    width="140"
+                    height="50"
+                    x="-70"
+                    y="-25"
+                    rx="5"
+                    ry="5"
+                    fill="#e6f0fa"
+                    stroke="#4682b4"
+                  />
+                  <text
+                    fill="#333"
+                    strokeWidth="0"
+                    x="0"
+                    y="-5"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize="10"
+                  >
+                    {rd3tProps.nodeDatum.name}
+                  </text>
+                  <text
+                    fill="#333"
+                    strokeWidth="0"
+                    x="0"
+                    y="10"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize="8"
+                  >
+                    {rd3tProps.nodeDatum.attributes?.weight}
+                    {rd3tProps.nodeDatum.attributes?.globalScore &&
+                      ` (Điểm tổng: ${rd3tProps.nodeDatum.attributes.globalScore}, Xếp hạng: ${rd3tProps.nodeDatum.attributes.rank})`}
+                  </text>
+                </g>
+              )}
+              styles={{
+                links: { stroke: "#4682b4", strokeWidth: "1px" },
+              }}
+            />
+          </div>
+          <button
+            className="mt-4 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+            onClick={() => setShowTree(false)}
+          >
+            Trở về
+          </button>
+        </div>
+      )}
       <div className="flex justify-center my-4">
         <button
           onClick={checkConsistency}
