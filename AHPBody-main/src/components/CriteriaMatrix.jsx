@@ -10,9 +10,15 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
   const [weights, setWeights] = useState(null);
   const [consistencyVector, setConsistencyVector] = useState(null);
 
+  // Danh sách giá trị cho dropdown (bao gồm phân số và số nguyên từ 1/9 đến 9)
+  const comparisonValues = [
+    "1/9", "1/8", "1/7", "1/6", "1/5", "1/4", "1/3", "1/2", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+  ];
+
   const handleCriteriaChange = (i, j, value) => {
     const val = parseInput(value);
     if (val === null || val <= 0) return;
+
     setCriteriaMatrix((prevMatrix) => {
       const newMatrix = prevMatrix.map((row) => [...row]);
       newMatrix[i][j] = val;
@@ -45,8 +51,7 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
         Ma trận So sánh Cặp Tiêu chí
       </h2>
       <p className="text-sm text-gray-600 mb-2">
-        Lưu ý: Nhập giá trị dưới dạng phân số (ví dụ: 1/3) hoặc số thập phân (ví
-        dụ: 0.333). Giá trị đối xứng sẽ tự động cập nhật.
+        Lưu ý: Chỉ có thể chỉnh sửa phần trên đường chéo chính (tam giác trên). Giá trị đối xứng sẽ tự động cập nhật.
       </p>
       <table className="w-full border-collapse">
         <thead>
@@ -65,15 +70,20 @@ const CriteriaMatrix = ({ criteria, criteriaMatrix, setCriteriaMatrix }) => {
               <td className="border border-gray-400 p-2 font-medium">{criteria[i]}</td>
               {row.map((val, j) => (
                 <td key={j} className="border border-gray-400 p-2">
-                  <input
-                    type="text"
+                  <select
                     value={formatValue(val)}
                     onChange={(e) => handleCriteriaChange(i, j, e.target.value)}
                     className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
-                    placeholder="Nhập 1/3 hoặc 0.333"
-                    disabled={i === j}
-                    style={i === j ? { backgroundColor: "#f0f0f0" } : {}}
-                  />
+                    disabled={i >= j} // Disable nếu là đường chéo (i === j) hoặc tam giác dưới (i > j)
+                    style={i >= j ? { backgroundColor: "#f0f0f0" } : {}}
+                  >
+                    <option value="" disabled>Chọn giá trị</option>
+                    {comparisonValues.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                 </td>
               ))}
             </tr>

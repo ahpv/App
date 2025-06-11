@@ -20,6 +20,7 @@
         "react-d3-tree": "^3.6.6",
         "react-dom": "^19.0.0",
         "tailwindcss": "^4.1.4",
+        "vis-network": "^9.1.10",
         "xlsx": "^0.18.5"
     },
     "devDependencies": {

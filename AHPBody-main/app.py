@@ -10,6 +10,7 @@ client = MongoClient('mongodb://localhost:27017/')
 db = client['ahp_db']
 collection = db['ahp_results']
 
+
 def process_body_index(sex, age, weight, height, waist, buttocks):
     try:
         bmi = weight / (height / 100) ** 2
