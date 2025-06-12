@@ -125,15 +125,17 @@ const App = () => {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: "array" });
+        const workbook = XLSX.read(data, { type: "array", cellText: false, cellDates: true });
 
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, raw: false });
 
-        // Hàm phụ để tìm vị trí của tiêu đề trong sheet
+        // Hàm phụ để tìm vị trí tiêu đề, bỏ qua khoảng trắng và không phân biệt hoa thường
         const findTableStart = (title) => {
+          const normalizedTitle = title.trim().toLowerCase();
           for (let i = 0; i < jsonData.length; i++) {
-            if (jsonData[i][0] === title) {
+            const cellValue = jsonData[i][0]?.toString().trim().toLowerCase();
+            if (cellValue === normalizedTitle) {
               return i;
             }
           }
@@ -147,27 +149,40 @@ const App = () => {
           return;
         }
 
-        const userInfoData = jsonData.slice(userInfoStart + 2, userInfoStart + 10);
+        const userInfoData = jsonData.slice(userInfoStart + 1, userInfoStart + 10);
         const newUserInput = {
-          name: userInfoData[0]?.[1] || "N/A",
-          sex: userInfoData[1]?.[1] === "Nam" ? "1" : "2",
-          age: userInfoData[2]?.[1] || "N/A",
-          weight: userInfoData[3]?.[1] || "N/A",
-          height: userInfoData[4]?.[1] || "N/A",
-          waist: userInfoData[5]?.[1] || "N/A",
-          buttocks: userInfoData[6]?.[1] || "N/A",
-          message: userInfoData[7]?.[1] || "N/A",
+          name: userInfoData[0]?.[1]?.toString().trim() || "N/A",
+          sex: userInfoData[1]?.[1]?.toString().trim() === "Nam" ? "1" : "2",
+          age: Number(userInfoData[2]?.[1]) || 0,
+          weight: Number(userInfoData[3]?.[1]) || 0,
+          height: Number(userInfoData[4]?.[1]) || 0,
+          waist: Number(userInfoData[5]?.[1]) || 0,
+          buttocks: Number(userInfoData[6]?.[1]) || 0,
+          message: userInfoData[7]?.[1]?.toString().trim() || "N/A",
         };
         setUserInput(newUserInput);
 
-        // 2. Xử lý ma trận tiêu chí
+        // 2. Xử lý chỉ số cơ thể
+        const bodyIndicesStart = findTableStart("Chỉ số cơ thể");
+        let newBodyIndices = {};
+        if (bodyIndicesStart !== -1) {
+          const bodyIndicesData = jsonData.slice(bodyIndicesStart + 2).filter(row => row[0] && row[1]);
+          newBodyIndices = bodyIndicesData.reduce((acc, row) => {
+            const value = Number(row[1]);
+            acc[row[0]?.toString().trim()] = isNaN(value) ? 0 : value;
+            return acc;
+          }, {});
+        }
+        setBodyIndices(newBodyIndices);
+
+        // 3. Xử lý ma trận tiêu chí
         const criteriaMatrixStart = findTableStart("Ma trận So sánh Cặp Tiêu chí");
         if (criteriaMatrixStart === -1) {
           setSaveStatus("Không tìm thấy 'Ma trận So sánh Cặp Tiêu chí' trong file Excel!");
           return;
         }
 
-        const criteriaHeader = jsonData[criteriaMatrixStart + 1]?.slice(1) || [];
+        const criteriaHeader = jsonData[criteriaMatrixStart + 1]?.slice(1).map(val => val?.toString().trim()).filter(Boolean) || [];
         if (!criteriaHeader.length) {
           setSaveStatus("Tiêu đề tiêu chí không hợp lệ!");
           return;
@@ -175,9 +190,11 @@ const App = () => {
 
         const criteriaMatrixData = jsonData
           .slice(criteriaMatrixStart + 2, criteriaMatrixStart + 2 + criteriaHeader.length)
-          .map((row) => row.slice(1).map((val) => Number(val) || 1));
+          .map((row) => row.slice(1, criteriaHeader.length + 1).map((val) => {
+            const num = Number(val);
+            return isNaN(num) ? 1 : num;
+          }));
 
-        // Kiểm tra tính hợp lệ của ma trận tiêu chí
         if (
           criteriaMatrixData.length !== criteriaHeader.length ||
           criteriaMatrixData.some((row) => row.length !== criteriaHeader.length)
@@ -189,15 +206,10 @@ const App = () => {
         setCriteria(criteriaHeader);
         setCriteriaMatrix(criteriaMatrixData);
 
-        // 3. Xử lý ma trận phương án
+        // 4. Xử lý ma trận phương án
         const newAlternativeMatrices = {};
         let isValid = true;
-        const altMatrixStart = findTableStart(`Ma trận So sánh Cặp Phương án theo ${criteriaHeader[0]}`);
-        if (altMatrixStart === -1) {
-          setSaveStatus(`Không tìm thấy ma trận phương án cho tiêu chí ${criteriaHeader[0]}!`);
-          return;
-        }
-        const altHeader = jsonData[altMatrixStart + 1]?.slice(1) || [];
+        const altHeader = jsonData[findTableStart(`Ma trận So sánh Cặp Phương án theo ${criteriaHeader[0]}`) + 1]?.slice(1).map(val => val?.toString().trim()).filter(Boolean) || [];
         if (!altHeader.length) {
           setSaveStatus("Tiêu đề phương án không hợp lệ!");
           return;
@@ -214,9 +226,11 @@ const App = () => {
 
           const altMatrixData = jsonData
             .slice(matrixStart + 2, matrixStart + 2 + altHeader.length)
-            .map((row) => row.slice(1).map((val) => Number(val) || 1));
+            .map((row) => row.slice(1, altHeader.length + 1).map((val) => {
+              const num = Number(val);
+              return isNaN(num) ? 1 : num;
+            }));
 
-          // Kiểm tra tính hợp lệ của ma trận phương án
           if (
             altMatrixData.length !== altHeader.length ||
             altMatrixData.some((row) => row.length !== altHeader.length)
@@ -234,8 +248,22 @@ const App = () => {
         }
 
         setAlternativeMatrices(newAlternativeMatrices);
+
+        // 5. Xử lý kết quả AHP
+        const resultsStart = findTableStart("Kết quả AHP");
+        let newResults = {};
+        if (resultsStart !== -1) {
+          const resultsData = jsonData.slice(resultsStart + 2).filter(row => row[0]);
+          newResults.globalScores = resultsData.map(row => ({
+            name: row[0]?.toString().trim() || "N/A",
+            score: Number(row[1]) || 0,
+            rank: Number(row[2]) || 0,
+          }));
+        }
+        setResults(newResults);
+
         setSaveStatus("Import file Excel thành công! Vui lòng kiểm tra CR trước khi tiếp tục.");
-        setIsConsistent(false); // Reset isConsistent sau khi import
+        setIsConsistent(false);
       } catch (error) {
         console.error("Lỗi khi import Excel:", error);
         setSaveStatus("Lỗi khi import Excel. Vui lòng kiểm tra file và thử lại!");
